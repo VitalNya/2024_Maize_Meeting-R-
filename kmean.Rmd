@@ -1,0 +1,189 @@
+---
+
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r echo=FALSE}
+#https://www.r-bloggers.com/2019/10/cluster-multiple-time-series-using-k-means-2/
+
+
+#Import files
+kmeans_rownormalized_zero_to_one <-read.table("C:/Users/vital/Box/AndersonLab_Cybox/Vital_Nyabashi/kmeanProject/kmeans_rownormalized_zero_to_one.txt", header = T)
+
+
+zein_names <- c("Zm00001eb166940",
+  "Zm00001eb313790",
+  "Zm00001eb315100",
+  "Zm00001eb355270",
+  "Zm00001eb166950",
+  "Zm00001eb267570",
+  "Zm00001eb313800",
+  "Zm00001eb030160",
+  "Zm00001eb303160",
+  "Zm00001eb303130",
+  "Zm00001eb166580",
+  "Zm00001eb281380",
+  "Zm00001eb030130",
+  "Zm00001eb166610",
+  "Zm00001eb166600",
+  "Zm00001eb166660",
+  "Zm00001eb166670",
+  "Zm00001eb171940")
+
+zein_names
+
+
+
+```
+
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(pwt9)
+library(purrr)
+library(stats)
+library(purrr)
+
+```
+
+
+```{r}
+head(kmeans_rownormalized_zero_to_one)
+
+
+# Add row names to a new column called 'ID'
+kmeans_rownormalized_zero_to_one$ID <- rownames(kmeans_rownormalized_zero_to_one)
+
+# Remove row names from the data frame
+rownames(kmeans_rownormalized_zero_to_one) <- NULL
+#Moves the ID column to the front
+kmeans_rownormalized_zero_to_one <- kmeans_rownormalized_zero_to_one[, c("ID", setdiff(names(kmeans_rownormalized_zero_to_one), "ID"))]
+
+
+#Using the K-means algorithm to know how many clusters to aim for
+log2rpm <- map_dbl(1:10, ~{kmeans(select(kmeans_rownormalized_zero_to_one, -ID), ., nstart=13,iter.max = 15 )$tot.withinss})
+
+n_clust <- 1:10
+
+elbow_df <- as.data.frame(cbind("n_clust" = n_clust, "wss" = log2rpm))
+
+
+ggplot(elbow_df) +
+  geom_line(aes(x = n_clust, y = log2rpm), colour = "#82518c") +
+  theme_gray()
+
+
+```
+
+
+```{r}
+# 5 is our cluster 
+# Run the Kmeans algorithm
+# centers contain the "average" time series
+
+clusters <- kmeans(select(kmeans_rownormalized_zero_to_one, -ID), centers = 10)
+
+#sum squares between sum of squares and total sum of squares  
+#It's basically a measure of the goodness of the classification k-means has found. SS obviously stands for Sum of Squares, so it's the usual decomposition of deviance in deviance "Between" and deviance "Within". Ideally you want a clustering that has the properties of internal cohesion and external separation, i.e. the BSS/TSS ratio should approach 1.
+
+#61.7%
+print(clusters)
+
+
+# Extract cluster centers with rownames as 'cluster'
+centers <- rownames_to_column(as.data.frame(clusters$centers), "cluster")
+
+
+#clusters contains the cluster item, which tells me which cluster the different timepoints belong to
+kmeans_rownormalized_zero_to_one_wide <- kmeans_rownormalized_zero_to_one %>%
+  mutate(cluster = clusters$cluster)
+
+
+# Now, let’s prepare the data for visualization.
+kmeans_rownormalized_zero_to_one_wide <- kmeans_rownormalized_zero_to_one_wide %>%
+  mutate(
+    `11_DAP_mean` = rowMeans(select(., 2:4), na.rm = TRUE),
+    `14_DAP_mean` = rowMeans(select(., 5:7), na.rm = TRUE),
+    `17_DAP_mean` = rowMeans(select(., 8:10), na.rm = TRUE),
+    `21_DAP_mean` = rowMeans(select(., 11:13), na.rm = TRUE)
+  ) %>%
+  select(-2:-13)
+
+
+
+
+centers_wide <- centers %>%
+  mutate(
+    `11_DAP_mean` = rowMeans(select(., 2:4), na.rm = TRUE),
+    `14_DAP_mean` = rowMeans(select(., 5:7), na.rm = TRUE),
+    `17_DAP_mean` = rowMeans(select(., 8:10), na.rm = TRUE),
+    `21_DAP_mean` = rowMeans(select(., 11:13), na.rm = TRUE)
+  ) %>%
+  select(-2:-13)
+
+#Reshape your data into long format and then use ggplot2 to create a line plot
+kmeans_rownormalized_zero_to_one_long <- kmeans_rownormalized_zero_to_one_wide %>%
+  pivot_longer(cols = c(`11_DAP_mean`, `14_DAP_mean`, `17_DAP_mean`, `21_DAP_mean`),
+               names_to = "DAP",
+               values_to = "mean_value")
+
+
+kmeans_rownormalized_zero_to_one_long$ID2 <- substr(kmeans_rownormalized_zero_to_one_long$ID, 5, 19)
+
+newdf <- subset(kmeans_rownormalized_zero_to_one_long, kmeans_rownormalized_zero_to_one_long$ID2 %in% zein_names)
+
+table(newdf$cluster)
+
+newdf
+
+centers_long <- centers_wide %>%
+  pivot_longer(cols = c(`11_DAP_mean`, `14_DAP_mean`, `17_DAP_mean`, `21_DAP_mean`),
+               names_to = "DAP",
+               values_to = "logmean")
+
+#Plot it!!
+ggplot() +
+  geom_point(
+    data = kmeans_rownormalized_zero_to_one_long,
+    aes(y = mean_value, x = DAP, group = ID),
+    colour = "#82518c",
+    size = 2  # Adjust the size as needed
+  ) +
+  facet_wrap(~cluster, nrow = 1) + 
+  geom_line(
+    data = centers_long,
+    aes(y = logmean, x = DAP, group = cluster),
+    colour = "#b58900"
+  ) +
+  theme_bw() +
+  theme(plot.caption = element_text(colour = "white")) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+
+```
+
+```{r}
+
+
+ggplot()+
+  geom_line(data =newdf, aes(y = mean_value, x = DAP, group = ID), colour = "#82518c") +
+  facet_wrap(~cluster, nrow = 1) + 
+  geom_line(data = centers_long, aes(y = logmean, x = DAP, group = cluster), colour = "#b58900") +
+  theme_bw() +
+  theme(plot.caption = element_text(colour = "white"))+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
