@@ -35,7 +35,6 @@ zein_names <- c("Zm00001eb166940",
   "Zm00001eb166670",
   "Zm00001eb171940")
 
-zein_names
 
 
 
@@ -43,13 +42,34 @@ zein_names
 
 
 ```{r}
+# Install and load necessary packages
+if (!requireNamespace("pheatmap", quietly = TRUE)) {
+  install.packages("pheatmap")
+}
+if (!requireNamespace("factoextra", quietly = TRUE)) {
+  install.packages("factoextra")
+}
+
 library(tidyverse)
 library(lubridate)
 library(pwt9)
 library(purrr)
 library(stats)
 library(purrr)
+library(pheatmap)
+library(factoextra)
 
+```
+
+
+```{r}
+########################################################################
+#kmeans???
+#you can remove if not needed just wanted to try to use a different method to find appropriate cluster
+NbClust(data = kmeans_rownormalized_zero_to_one, diss = NULL, distance = "euclidean", min.nc = 2, max.nc = 15, 
+
+method = "kmeans", index = "all", alphaBeale = 0.1)
+#########################################################################
 ```
 
 
@@ -66,7 +86,7 @@ rownames(kmeans_rownormalized_zero_to_one) <- NULL
 kmeans_rownormalized_zero_to_one <- kmeans_rownormalized_zero_to_one[, c("ID", setdiff(names(kmeans_rownormalized_zero_to_one), "ID"))]
 
 
-#Using the K-means algorithm to know how many clusters to aim for
+#Using the K-means algorithm to determine optimal clusters
 log2rpm <- map_dbl(1:10, ~{kmeans(select(kmeans_rownormalized_zero_to_one, -ID), ., nstart=13,iter.max = 15 )$tot.withinss})
 
 n_clust <- 1:10
@@ -127,6 +147,7 @@ centers_wide <- centers %>%
   ) %>%
   select(-2:-13)
 
+
 #Reshape your data into long format and then use ggplot2 to create a line plot
 kmeans_rownormalized_zero_to_one_long <- kmeans_rownormalized_zero_to_one_wide %>%
   pivot_longer(cols = c(`11_DAP_mean`, `14_DAP_mean`, `17_DAP_mean`, `21_DAP_mean`),
@@ -149,7 +170,7 @@ centers_long <- centers_wide %>%
 
 #Plot it!!
 ggplot() +
-  geom_point(
+  geom_line(
     data = kmeans_rownormalized_zero_to_one_long,
     aes(y = mean_value, x = DAP, group = ID),
     colour = "#82518c",
@@ -164,6 +185,57 @@ ggplot() +
   theme_bw() +
   theme(plot.caption = element_text(colour = "white")) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+
+```{r}
+#Heatmaps: Create heatmaps to visualize the gene expression patterns over time. 
+
+###################
+# Extract the gene expression data for the selected genes
+selected_genes <- subset(kmeans_rownormalized_zero_to_one_long, ID2 %in% zein_names)
+
+# Select relevant columns for the heatmap
+heatmap_data <- selected_genes %>%
+  select(ID2, DAP, mean_value) %>%
+  spread(DAP, mean_value)
+
+# Set row names and remove the ID2 column
+rownames(heatmap_data) <- heatmap_data$ID2
+heatmap_data <- heatmap_data[, -1]
+
+# Create a heatmap
+pheatmap(heatmap_data, cluster_rows = TRUE, cluster_cols = TRUE, 
+         color = colorRampPalette(c("blue", "white", "red"))(50),
+         main = "Gene Expression Heatmap")
+###################
+```
+
+
+```{r}
+#Principal Component Analysis (PCA) Plots: Visualize the variance and relationships between samples in a reduced-dimensional space.
+
+###################
+# Perform Principal Component Analysis (PCA)
+pca_data <- select(kmeans_rownormalized_zero_to_one, -ID)
+pca_result <- prcomp(pca_data, scale. = TRUE)
+
+# Extract PC scores
+pc_scores <- as.data.frame(pca_result$x)
+
+# Convert cluster variable to factor
+kmeans_rownormalized_zero_to_one_wide$cluster <- as.factor(kmeans_rownormalized_zero_to_one_wide$cluster)
+
+# Plot PCA
+fviz_pca_ind(pca_result, 
+             geom.ind = "point",
+             col.ind = kmeans_rownormalized_zero_to_one_wide$cluster,
+             palette = c("#82518c", "#b58900", "#0066cc", "#ff6666", "#009933", "#ff9900", "#993366", "#009999", "#cc0000", "#6600cc"),
+             addEllipses = TRUE,
+             ellipse.type = "confidence",
+             legend.title = "Cluster",
+             title = "Principal Component Analysis (PCA) Plot")
+###################
 
 
 ```
